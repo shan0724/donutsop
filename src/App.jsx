@@ -155,10 +155,9 @@ export default function App() {
   const [newAdminPass, setNewAdminPass] = useState('');
 
   // ----------------------------------------------------------------
-  // 0. 核心修正：處理 App ID (解決 Invalid collection reference 錯誤)
+  // 0. 核心修正：處理 App ID
   // ----------------------------------------------------------------
   const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-  // 將斜線、點等特殊符號替換為底線，確保路徑層級正確
   const appId = rawAppId.replace(/[\/.]/g, '_');
 
   // ----------------------------------------------------------------
