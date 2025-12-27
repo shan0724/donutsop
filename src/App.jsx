@@ -10,19 +10,13 @@ import {
   getFirestore, 
   collection, 
   addDoc, 
-  getDocs, 
   doc, 
   setDoc, 
   deleteDoc, 
-  query, 
-  orderBy, 
   onSnapshot
 } from "firebase/firestore";
 import { 
-  CheckCircle, 
-  AlertTriangle, 
   Settings, 
-  Save, 
   Trash2, 
   History, 
   ClipboardList, 
@@ -38,11 +32,10 @@ import {
   DollarSign,
   ShieldCheck,
   UserPlus,
-  Key,
-  Filter,
   Lock,
   Unlock,
-  Plus
+  Plus,
+  AlertTriangle
 } from 'lucide-react';
 
 // ------------------------------------------------------------------
@@ -50,7 +43,6 @@ import {
 // ------------------------------------------------------------------
 const getApiKey = () => {
   try {
-    // 優先嘗試從環境變數讀取
     return (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_API_KEY) 
       || "AIzaSyCT5JS5VRx4HaAkjPuEgm-CPaqn4sjY9NY";
   } catch (e) {
@@ -75,7 +67,7 @@ const auth = getAuth(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'donutes-olowo-castle';
 
 // ------------------------------------------------------------------
-// 定義與常數
+// 常數與名單
 // ------------------------------------------------------------------
 const DEFECT_PAGES = ["吧檯", "外場", "櫃台", "缺失"]; 
 const DUTY_PAGES = ["值班經理能力", "個人職能表現", "業績與KPI達成"]; 
@@ -117,7 +109,7 @@ const DEFAULT_ITEMS = [
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [page, setPage] = useState('check'); // 'check' or 'duty'
+  const [page, setPage] = useState('check'); 
   const [view, setView] = useState('main'); 
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -130,7 +122,6 @@ export default function App() {
   const [formData, setFormData] = useState({
     date: new Date().toISOString().substr(0, 10),
     staffName: '',
-    checkerName: '',
     checkedItems: {}, 
     manualNote: '',
   });
@@ -146,16 +137,14 @@ export default function App() {
   const [newAdminUser, setNewAdminUser] = useState('');
   const [newAdminPass, setNewAdminPass] = useState('');
 
-  // 編輯模式狀態
   const [isStaffEditMode, setIsStaffEditMode] = useState(false);
   const [isItemEditMode, setIsItemEditMode] = useState(false);
 
-  // 標準新增狀態
   const [newItemText, setNewItemText] = useState('');
   const [newItemCat, setNewItemCat] = useState('吧檯');
   const [newItemValue, setNewItemValue] = useState(1000);
 
-  // --- 頁面初始化與標題 ---
+  // --- 初始化手機圖示與標題 ---
   useEffect(() => {
     document.title = "多那之歐樂沃城堡門市";
     const link = document.querySelector("link[rel*='icon']") || document.createElement('link');
@@ -174,13 +163,16 @@ export default function App() {
         } else {
           await signInAnonymously(auth);
         }
-      } catch (e) { console.error("Auth Fail:", e); }
+      } catch (e) { console.error("Firebase Auth Fail:", e); }
     };
     initAuth();
-    return onAuthStateChanged(auth, (u) => setUser(u));
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+    });
+    return () => unsubscribe();
   }, []);
 
-  // --- 雲端資料同步 ---
+  // --- 資料同步 ---
   useEffect(() => {
     if (!user) return;
     setLoading(true);
@@ -206,21 +198,17 @@ export default function App() {
     return () => { unsubAdmins(); unsubItems(); unsubStaff(); };
   }, [user]);
 
-  // --- 後台數據分析 ---
+  // --- 後台彙整 ---
   useEffect(() => {
     if (isAdmin && user) {
       const unsubReports = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'reports'), (snap) => {
         const raw = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         const monthFiltered = raw.filter(r => r.dateStr && r.dateStr.startsWith(statsMonth));
         const historyData = filterStaff === 'all' ? monthFiltered : monthFiltered.filter(r => r.staffName === filterStaff);
-        
         setHistoryLogs(historyData.sort((a, b) => b.timestamp - a.timestamp));
-
         const map = {};
         monthFiltered.forEach(r => {
-          if (!map[r.staffName]) {
-            map[r.staffName] = { name: r.staffName, defects: 0, pay: 0, reports: 0, defectDetail: {} };
-          }
+          if (!map[r.staffName]) map[r.staffName] = { name: r.staffName, defects: 0, pay: 0, reports: 0, defectDetail: {} };
           map[r.staffName].reports += 1;
           map[r.staffName].defects += (r.defectCount || 0);
           map[r.staffName].pay += (r.totalAmount || 0);
@@ -234,26 +222,24 @@ export default function App() {
     }
   }, [isAdmin, user, statsMonth, filterStaff]);
 
-  // --- 功能邏輯 ---
+  // --- 報表匯出 ---
   const exportData = (exportType) => {
     let csvContent = "\uFEFF"; 
     let fileName = "";
     const staffData = filterStaff !== 'all' ? monthlyStats.find(s => s.name === filterStaff) : null;
-
     if (exportType === 'staff_defects' && filterStaff !== 'all') {
-      fileName = `${statsMonth}_${filterStaff}_查核分析報表.csv`;
-      csvContent += `員工姓名,${filterStaff}\n統計月份,${statsMonth}\n累計查核項數,${staffData?.defects || 0}\n\n查核項目排行\n內容,累積次數\n`;
+      fileName = `${statsMonth}_${filterStaff}_查核分析.csv`;
+      csvContent += `員工,${filterStaff}\n月份,${statsMonth}\n累計項數,${staffData?.defects || 0}\n\n缺失熱點排行\n項目,次數\n`;
       Object.entries(staffData?.defectDetail || {}).sort((a,b)=>b[1]-a[1]).forEach(([it, co]) => { csvContent += `"${it}",${co}\n`; });
     } else if (exportType === 'boss_bonus' && filterStaff !== 'all') {
-      fileName = `${statsMonth}_${filterStaff}_輪值津貼報表.csv`;
-      csvContent += `輪值店長,${filterStaff}\n報表月份,${statsMonth}\n應發津貼總計,$${staffData?.pay || 0}\n\n津貼明細\n日期,達成項數,單筆獎金,管理員備註\n`;
+      fileName = `${statsMonth}_${filterStaff}_加給報表.csv`;
+      csvContent += `人員,${filterStaff}\n月份,${statsMonth}\n總獎金,$${staffData?.pay || 0}\n\n明細\n日期,達成數,金額,備註\n`;
       historyLogs.filter(l => l.type === 'duty').forEach(log => { csvContent += `${log.dateStr},${log.dutyCount},${log.totalAmount},"${log.manualNote || ''}"\n`; });
     } else {
-      fileName = `${statsMonth}_全體查核彙整表.csv`;
-      csvContent += `統計月份,${statsMonth}\n\n員工姓名,回報次數,查核累計,津貼累計\n`;
+      fileName = `${statsMonth}_全體彙整表.csv`;
+      csvContent += `月份,${statsMonth}\n\n姓名,次數,查核,加給\n`;
       monthlyStats.forEach(s => { csvContent += `${s.name},${s.reports},${s.defects},${s.pay}\n`; });
     }
-
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -269,47 +255,42 @@ export default function App() {
 
   const handleSubmit = async (type) => {
     if (!user) return;
-    if (!formData.staffName) { alert(`請選擇查核對象`); return; }
-    
+    if (!formData.staffName) { alert(`請選擇對象`); return; }
     const isCheck = type === 'check';
     const items = checklistItems.filter(i => (isCheck ? DEFECT_PAGES : DUTY_PAGES).includes(i.category) && formData.checkedItems[i.id]);
-    
     const report = {
       type,
       timestamp: new Date(),
       dateStr: formData.date,
       staffName: formData.staffName,
-      checkerName: formData.checkerName || '本人',
       defectCount: isCheck ? items.length : 0,
       uncheckedItems: isCheck ? items.map(i => i.text) : [],
       dutyCount: !isCheck ? items.length : 0,
       totalAmount: !isCheck ? items.reduce((s, i) => s + (i.value || 0), 0) : 0,
       manualNote: formData.manualNote
     };
-
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'reports'), report);
       setLastSubmitType(type);
       setView('success');
-    } catch (e) { alert("發送失敗，請重試。"); }
+    } catch (e) { alert("發送失敗"); }
   };
 
   const Header = () => (
     <div className="bg-[#1a1a1a] text-[#c5a065] p-5 text-center border-b-4 border-[#c5a065] shadow-md sticky top-0 z-[100] safe-top">
-      <h1 className="text-xl font-black tracking-wider text-white font-serif">多那之歐樂沃城堡門市</h1>
-      <p className="text-[10px] text-gray-500 tracking-[0.2em] font-medium uppercase mt-0.5">{view === 'admin' ? '管理者控制台' : (page === 'check' ? '查核系統' : '輪值評分系統')}</p>
-      {view === 'main' && <button onClick={() => setView('login')} className="absolute top-1/2 -translate-y-1/2 right-4 p-2 text-gray-600 transition-colors hover:text-white"><Settings size={22} /></button>}
-      {view === 'admin' && <button onClick={() => { setIsAdmin(false); setView('main'); setFilterStaff('all'); }} className="absolute top-1/2 -translate-y-1/2 right-4 bg-red-900/30 text-red-500 px-3 py-1 rounded-full text-xs font-black border border-red-900/20">登出</button>}
+      <h1 className="text-xl font-bold tracking-widest text-white font-serif mb-0.5 uppercase">多那之歐樂沃城堡門市</h1>
+      <p className="text-[10px] text-[#c5a065] tracking-[0.2em] font-bold uppercase opacity-80">
+        {view === 'admin' ? 'Management Dashboard' : (page === 'check' ? '查核系統' : '輪值評分系統')}
+      </p>
+      {view === 'main' && <button onClick={() => setView('login')} className="absolute top-1/2 -translate-y-1/2 right-4 p-2 text-gray-500 hover:text-white transition-all"><Settings size={22} /></button>}
+      {view === 'admin' && <button onClick={() => { setIsAdmin(false); setView('main'); setFilterStaff('all'); }} className="absolute top-1/2 -translate-y-1/2 right-4 bg-red-900/30 text-red-500 px-3 py-1 rounded-full text-xs font-black border border-red-900/20 active:scale-95 transition-all">登出</button>}
     </div>
   );
 
   if (loading && !user) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-center">
-          <img src={LOGO_URL} className="w-16 h-16 rounded-full mx-auto mb-4 animate-pulse shadow-lg" alt="Logo" />
-          <p className="text-gray-400 font-bold">系統啟動中...</p>
-        </div>
+        <img src={LOGO_URL} className="w-16 h-16 rounded-full animate-pulse shadow-xl" alt="Loading" />
       </div>
     );
   }
@@ -319,17 +300,17 @@ export default function App() {
       <div className="min-h-screen bg-gray-100 flex flex-col">
         <Header />
         <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-sm bg-white p-8 rounded-[2rem] shadow-xl text-center border">
-            <img src={LOGO_URL} className="w-20 h-20 rounded-full mx-auto mb-6 shadow-md border-2 border-gray-100" alt="Logo" />
-            <h2 className="text-xl font-bold mb-6 text-gray-800 flex items-center justify-center gap-2"><Shield size={20}/> 管理權限驗證</h2>
+          <div className="w-full max-w-sm bg-white p-8 rounded-[2rem] shadow-2xl text-center border">
+            <img src={LOGO_URL} className="w-20 h-20 rounded-full mx-auto mb-6 shadow-xl" alt="Logo" />
+            <h2 className="text-xl font-black mb-8 text-gray-800">身分權限驗證</h2>
             <div className="space-y-4">
               <input type="text" placeholder="管理者帳號" className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" value={loginUser} onChange={e=>setLoginUser(e.target.value)} />
-              <input type="password" placeholder="登入密碼" className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" value={loginPass} onChange={e=>setLoginPass(e.target.value)} />
+              <input type="password" placeholder="密碼" className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" value={loginPass} onChange={e=>setLoginPass(e.target.value)} />
               <button onClick={() => {
                 const found = adminList.find(a => a.username === loginUser && a.password === loginPass);
-                if (found) { setIsAdmin(true); setView('admin'); } else { alert("驗證失敗"); }
-              }} className="w-full py-4 bg-[#c5a065] text-white rounded-2xl font-bold shadow-lg active:scale-95 transition-all">進入系統</button>
-              <button onClick={()=>setView('main')} className="w-full py-2 text-gray-400 font-bold text-sm">返回填寫頁</button>
+                if (found) { setIsAdmin(true); setView('admin'); } else { alert("帳號或密碼錯誤"); }
+              }} className="w-full py-4 bg-[#c5a065] text-white rounded-2xl font-black shadow-lg">登入系統</button>
+              <button onClick={()=>setView('main')} className="w-full py-2 text-gray-400 font-bold text-sm hover:text-gray-600 transition-colors">返回</button>
             </div>
           </div>
         </div>
@@ -342,59 +323,31 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-100 pb-24">
         <Header />
-        <div className="max-w-4xl mx-auto mt-4 px-4 space-y-4">
-          <div className="flex bg-white rounded-2xl shadow-sm p-1 border overflow-x-auto gap-1">
-            {[
-              {id:'stats', label:'數據統計', icon: BarChart3},
-              {id:'staff', label:'員工管理', icon: Users},
-              {id:'items', label:'標準維護', icon: ClipboardList},
-              {id:'admins', label:'帳號管理', icon: ShieldCheck},
-              {id:'history', label:'報表歷史', icon: History}
-            ].map(tab => (
-              <button key={tab.id} onClick={() => { 
-                setActiveTab(tab.id); 
-                setIsStaffEditMode(false); 
-                setIsItemEditMode(false); 
-              }} className={`flex-1 py-3 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${activeTab === tab.id ? 'bg-[#c5a065] text-white shadow-md' : 'text-gray-400 hover:bg-gray-50'}`}><tab.icon size={16} /><span>{tab.label}</span></button>
+        <div className="max-w-4xl mx-auto mt-6 px-4 space-y-4">
+          <div className="flex bg-white rounded-2xl shadow-md p-1 border overflow-x-auto gap-1">
+            {[{id:'stats', label:'數據統計', icon: BarChart3}, {id:'staff', label:'員工管理', icon: Users}, {id:'items', label:'標準維護', icon: ClipboardList}, {id:'admins', label:'帳號權限', icon: ShieldCheck}, {id:'history', label:'報表歷史', icon: History}].map(tab => (
+              <button key={tab.id} onClick={() => { setActiveTab(tab.id); setIsStaffEditMode(false); setIsItemEditMode(false); }} className={`flex-1 py-3 rounded-xl text-[11px] font-black flex flex-col items-center gap-1 transition-all ${activeTab === tab.id ? 'bg-[#c5a065] text-white shadow-lg' : 'text-gray-400 hover:bg-gray-50'}`}><tab.icon size={18} /><span>{tab.label}</span></button>
             ))}
           </div>
 
           <div className="bg-white p-5 rounded-3xl shadow-sm min-h-[500px] border border-gray-100">
             {(activeTab === 'stats' || activeTab === 'history') && (
-              <div className="flex flex-col md:flex-row gap-3 mb-6 p-4 bg-gray-50 rounded-2xl border">
-                <div className="flex-1"><label className="text-[10px] font-black text-gray-400 pl-1 uppercase tracking-widest">月份篩選</label><input type="month" value={statsMonth} onChange={e=>setStatsMonth(e.target.value)} className="w-full p-2 border-none rounded-lg font-bold bg-white mt-1 shadow-sm outline-none" /></div>
-                <div className="flex-1"><label className="text-[10px] font-black text-gray-400 pl-1 uppercase tracking-widest">對象篩選</label><select value={filterStaff} onChange={e=>setFilterStaff(e.target.value)} className="w-full p-2 border-none rounded-lg font-bold bg-white mt-1 shadow-sm outline-none"><option value="all">全體回報彙總</option>{staffList.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+              <div className="flex flex-col md:flex-row gap-3 mb-8 p-5 bg-gray-50 rounded-3xl border">
+                <div className="flex-1"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">月份</label><input type="month" value={statsMonth} onChange={e=>setStatsMonth(e.target.value)} className="w-full p-3 border-none rounded-xl font-bold bg-white mt-1 shadow-sm outline-none" /></div>
+                <div className="flex-1"><label className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">人員</label><select value={filterStaff} onChange={e=>setFilterStaff(e.target.value)} className="w-full p-3 border-none rounded-xl font-bold bg-white mt-1 shadow-sm outline-none"><option value="all">全體回報彙總</option>{staffList.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
               </div>
             )}
 
             {activeTab === 'stats' && (
               <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-bold border-l-4 border-[#c5a065] pl-2 text-gray-800">月度報表匯總</h3>
-                  {filterStaff === 'all' ? (
-                    <button onClick={() => exportData('all')} className="bg-green-600 text-white px-3 py-2 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-sm"><Download size={14}/> 匯出彙總</button>
-                  ) : (
-                    <div className="flex gap-2">
-                      <button onClick={() => exportData('staff_defects')} className="bg-red-500 text-white px-3 py-2 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-sm"><ClipboardList size={14}/> 查核分析</button>
-                      <button onClick={() => exportData('boss_bonus')} className="bg-green-600 text-white px-3 py-2 rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-sm"><DollarSign size={14}/> 津貼報表</button>
-                    </div>
-                  )}
-                </div>
+                <div className="flex justify-between items-center"><h3 className="font-black border-l-4 border-[#c5a065] pl-3 text-gray-800">數據統計</h3>{filterStaff === 'all' ? (<button onClick={() => exportData('all')} className="bg-green-600 text-white px-3 py-2 rounded-lg text-[11px] font-black flex items-center gap-1 shadow-sm"><Download size={14}/> 匯出全體</button>) : (<div className="flex gap-2"><button onClick={() => exportData('staff_defects')} className="bg-red-500 text-white px-3 py-2 rounded-lg text-[11px] font-black flex items-center gap-1 shadow-sm"><ClipboardList size={14}/> 查核表</button><button onClick={() => exportData('boss_bonus')} className="bg-green-600 text-white px-3 py-2 rounded-lg text-[11px] font-black flex items-center gap-1 shadow-sm"><DollarSign size={14}/> 津貼表</button></div>)}</div>
                 {filterStaff === 'all' ? (
-                  <div className="space-y-3">{monthlyStats.map(s => (<div key={s.name} className="p-4 bg-gray-50 rounded-2xl flex justify-between items-center shadow-sm border border-gray-100"><div><p className="font-bold text-gray-800">{s.name}</p><p className="text-[10px] text-gray-400">總回報 {s.reports} 次</p></div><div className="text-right"><p className="text-lg font-black text-red-500 leading-none mb-1">{s.defects} 紀錄</p><p className="text-lg font-black text-green-600 leading-none">${s.pay} 加給</p></div></div>))}</div>
+                  <div className="space-y-3">{monthlyStats.map(s => (<div key={s.name} className="p-4 bg-gray-50 rounded-2xl flex justify-between items-center border"><div><p className="font-black text-gray-800 text-lg">{s.name}</p><p className="text-[10px] text-gray-400 uppercase">回報 {s.reports} 次</p></div><div className="text-right"><p className="text-xl font-black text-red-500 leading-none mb-1">{s.defects} 紀錄</p><p className="text-xl font-black text-green-600 leading-none">${s.pay} 加給</p></div></div>))}</div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-red-50 p-4 rounded-2xl text-center border border-red-100 shadow-sm"><p className="text-[10px] text-red-400 font-bold uppercase tracking-widest">累計查核項</p><p className="text-4xl font-black text-red-600 mt-1">{staffStats?.defects || 0}</p></div>
-                      <div className="bg-green-50 p-4 rounded-2xl text-center border border-green-100 shadow-sm"><p className="text-[10px] text-green-400 font-bold uppercase tracking-widest">當月津貼額</p><p className="text-4xl font-black text-green-600 mt-1">${staffStats?.pay || 0}</p></div>
-                    </div>
-                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-100 text-gray-500 text-[10px] font-black uppercase"><tr className="border-b"><th className="p-3 text-left">高頻查核標準排行榜</th><th className="p-3 text-right w-20">次數</th></tr></thead>
-                        <tbody className="divide-y">
-                          {Object.entries(staffStats?.defectDetail || {}).sort((a,b)=>b[1]-a[1]).map(([it, co]) => (<tr key={it} className="hover:bg-gray-50"><td className="p-3 text-gray-700 leading-tight">{it}</td><td className="p-3 text-right font-black text-red-500">{co}</td></tr>))}
-                        </tbody>
-                      </table>
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-red-50 p-6 rounded-3xl text-center border border-red-100 shadow-sm"><p className="text-[10px] text-red-400 font-black uppercase mb-1">查核累計</p><p className="text-4xl font-black text-red-600">{staffStats?.defects || 0}</p></div>
+                      <div className="bg-green-50 p-6 rounded-3xl text-center border border-green-100 shadow-sm"><p className="text-[10px] text-green-400 font-black uppercase mb-1">當月加給</p><p className="text-4xl font-black text-green-600">${staffStats?.pay || 0}</p></div>
                     </div>
                   </div>
                 )}
@@ -404,57 +357,32 @@ export default function App() {
             {activeTab === 'items' && (
               <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                  <div className="flex items-center gap-2"><div className={`p-1.5 rounded-lg ${isItemEditMode ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isItemEditMode ? <Unlock size={16}/> : <Lock size={16}/>}</div><div><p className="text-sm font-bold text-gray-800">標準刪除保護開關</p><p className="text-[10px] text-gray-400">{isItemEditMode ? '目前可刪除規則' : '目前為唯讀/儲存模式'}</p></div></div>
-                  <button onClick={() => setIsItemEditMode(!isItemEditMode)} className={`w-14 h-8 rounded-full transition-colors relative shadow-inner ${isItemEditMode ? 'bg-red-500' : 'bg-gray-300'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${isItemEditMode ? 'translate-x-6' : ''}`} /></button>
+                  <div className="flex items-center gap-3"><div className={`p-1.5 rounded-lg ${isItemEditMode ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isItemEditMode ? <Unlock size={16}/> : <Lock size={16}/>}</div><div><p className="text-sm font-bold text-gray-800">標準刪除鎖</p><p className="text-[10px] text-gray-400">{isItemEditMode ? '解除鎖定' : '目前鎖定中'}</p></div></div>
+                  <button onClick={() => setIsItemEditMode(!isItemEditMode)} className={`w-14 h-8 rounded-full transition-all relative shadow-inner ${isItemEditMode ? 'bg-red-500' : 'bg-gray-300'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${isItemEditMode ? 'translate-x-6' : ''}`} /></button>
                 </div>
                 <div className="p-5 bg-gray-50 rounded-3xl border border-dashed border-[#c5a065]/30">
-                  <h3 className="font-bold text-xs text-[#c5a065] uppercase tracking-widest flex items-center gap-2 mb-4"><Plus size={16}/> 新增查核/加給規則</h3>
                   <div className="space-y-3">
-                    <select value={newItemCat} onChange={e=>setNewItemCat(e.target.value)} className="w-full p-3 bg-white rounded-xl shadow-sm outline-none font-bold text-gray-700">{DEFAULT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select>
-                    <input type="text" value={newItemText} onChange={e=>setNewItemText(e.target.value)} className="w-full p-3 bg-white rounded-xl shadow-sm outline-none font-bold text-gray-700" placeholder="標準內容描述內容..." />
+                    <select value={newItemCat} onChange={e=>setNewItemCat(e.target.value)} className="w-full p-3 bg-white rounded-xl shadow-sm outline-none font-bold text-gray-700 text-sm">{DEFAULT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                    <input type="text" value={newItemText} onChange={e=>setNewItemText(e.target.value)} className="w-full p-3 bg-white rounded-xl shadow-sm outline-none font-bold text-gray-700 text-sm" placeholder="描述內容..." />
                     {DUTY_PAGES.includes(newItemCat) && (
-                      <div className="flex items-center gap-3 animate-in fade-in slide-in-from-top-1">
-                        <div className="flex-1 bg-green-50 p-3 rounded-xl border border-green-100 flex items-center gap-2"><DollarSign size={18} className="text-green-600"/><input type="number" value={newItemValue} onChange={e=>setNewItemValue(e.target.value)} className="bg-transparent w-full outline-none font-black text-green-700" placeholder="金額" /></div>
-                        <span className="text-[10px] text-gray-400 font-bold">單筆津貼</span>
-                      </div>
+                      <div className="flex items-center gap-3 bg-green-50 p-3 rounded-xl border border-green-100"><DollarSign size={18} className="text-green-600"/><input type="number" value={newItemValue} onChange={e=>setNewItemValue(e.target.value)} className="bg-transparent w-full outline-none font-black text-green-700 text-lg" placeholder="金額" /></div>
                     )}
-                    <button onClick={async () => { if(!newItemText) return; await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items'), { text: newItemText, category: newItemCat, ...(DUTY_PAGES.includes(newItemCat) ? { value: Number(newItemValue) } : {}) }); setNewItemText(''); }} className="w-full py-4 bg-[#c5a065] text-white rounded-2xl font-black shadow-lg">存入標準庫</button>
+                    <button onClick={async () => { if(!newItemText) return; await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items'), { text: newItemText, category: newItemCat, ...(DUTY_PAGES.includes(newItemCat) ? { value: Number(newItemValue) } : {}) }); setNewItemText(''); }} className="w-full py-4 bg-[#c5a065] text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all">存入標準庫</button>
                   </div>
                 </div>
-                <div className="divide-y border border-gray-100 rounded-3xl overflow-hidden shadow-sm">{checklistItems.map(it => (<div key={it.id} className="p-4 bg-white flex justify-between items-center gap-2"><div><div className="flex items-center gap-2 mb-1"><span className={`text-[8px] font-black px-2 py-0.5 rounded tracking-tighter uppercase ${DUTY_PAGES.includes(it.category) ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{it.category}</span>{it.value && <span className="text-[10px] font-bold text-green-500 flex items-center gap-0.5"><DollarSign size={10}/>{it.value}</span>}</div><p className="text-sm text-gray-600 leading-tight font-medium">{it.text}</p></div>{isItemEditMode && (<button onClick={async () => { if(confirm(`確定刪除標準項目？`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', it.id)); }} className="text-red-400 p-2"><Trash2 size={20}/></button>)}</div>))}</div>
+                <div className="divide-y border border-gray-100 rounded-3xl overflow-hidden shadow-sm">{checklistItems.map(it => (<div key={it.id} className="p-4 bg-white flex justify-between items-center gap-2"><div><div className="flex items-center gap-2 mb-1"><span className={`text-[8px] font-black px-2 py-0.5 rounded tracking-tighter uppercase ${DUTY_PAGES.includes(it.category) ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{it.category}</span>{it.value && <span className="text-[10px] font-bold text-green-500"><DollarSign size={10} className="inline"/>{it.value}</span>}</div><p className="text-sm text-gray-600 font-bold leading-tight">{it.text}</p></div>{isItemEditMode && (<button onClick={async () => { if(confirm(`確定刪除？`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', it.id)); }} className="text-red-400 p-2"><Trash2 size={20}/></button>)}</div>))}</div>
               </div>
             )}
 
             {activeTab === 'staff' && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                  <div className="flex items-center gap-2"><div className={`p-1.5 rounded-lg ${isStaffEditMode ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isStaffEditMode ? <Unlock size={16}/> : <Lock size={16}/>}</div><div><p className="text-sm font-bold text-gray-800">員工刪除開關</p><p className="text-[10px] text-gray-400">{isStaffEditMode ? '目前可執行刪除名單' : '目前僅能新增與儲存'}</p></div></div>
-                  <button onClick={() => setIsStaffEditMode(!isStaffEditMode)} className={`w-14 h-8 rounded-full transition-colors relative shadow-inner ${isStaffEditMode ? 'bg-red-500' : 'bg-gray-300'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${isStaffEditMode ? 'translate-x-6' : ''}`} /></button>
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100 shadow-inner">
+                  <div className="flex items-center gap-2"><div className={`p-1.5 rounded-lg ${isStaffEditMode ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isStaffEditMode ? <Unlock size={16}/> : <Lock size={16}/>}</div><div><p className="text-sm font-bold text-gray-800">名單鎖定</p><p className="text-[10px] text-gray-400 font-bold">{isStaffEditMode ? '可刪除人員' : '鎖定中'}</p></div></div>
+                  <button onClick={() => setIsStaffEditMode(!isStaffEditMode)} className={`w-14 h-8 rounded-full transition-all relative shadow-inner ${isStaffEditMode ? 'bg-red-500' : 'bg-gray-300'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${isStaffEditMode ? 'translate-x-6' : ''}`} /></button>
                 </div>
-                <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-300 shadow-sm"><p className="text-[10px] font-black text-gray-400 uppercase">人員名單維護</p><div className="flex gap-2 mt-2"><input type="text" value={newStaffName} onChange={e=>setNewStaffName(e.target.value)} className="flex-1 p-3 bg-white shadow-sm rounded-xl font-bold outline-none" placeholder="姓名" /><button onClick={async () => { if(!newStaffName) return; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', newStaffName), { name: newStaffName }); setNewStaffName(''); }} className="px-6 bg-[#c5a065] text-white rounded-xl font-bold active:scale-95 transition-all">新增</button></div></div>
-                <div className="grid grid-cols-2 gap-2">{staffList.map(s => (<div key={s} className={`p-4 bg-white border rounded-2xl flex justify-between items-center shadow-sm transition-all ${isStaffEditMode ? 'border-red-100 ring-1 ring-red-50' : 'border-gray-100'}`}><span className="font-bold text-gray-700">{s}</span>{isStaffEditMode && (<button onClick={async () => { if(confirm(`確定刪除 ${s}？`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', s)); }} className="text-red-400 p-1 animate-in zoom-in duration-300"><Trash2 size={18}/></button>)}</div>))}</div>
+                <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-300 shadow-sm"><div className="flex gap-2"><input type="text" value={newStaffName} onChange={e=>setNewStaffName(e.target.value)} className="flex-1 p-3 bg-white shadow-sm rounded-xl font-black outline-none text-sm" placeholder="姓名..." /><button onClick={async () => { if(!newStaffName) return; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', newStaffName), { name: newStaffName }); setNewStaffName(''); }} className="px-6 bg-[#c5a065] text-white rounded-xl font-black active:scale-95 shadow-lg">新增</button></div></div>
+                <div className="grid grid-cols-2 gap-2">{staffList.map(s => (<div key={s} className={`p-4 bg-white border rounded-2xl flex justify-between items-center shadow-sm transition-all ${isStaffEditMode ? 'border-red-100' : 'border-gray-100'}`}><span className="font-black text-gray-700 text-sm">{s}</span>{isStaffEditMode && (<button onClick={async () => { if(confirm(`確定刪除 ${s}？`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', s)); }} className="text-red-400 p-2"><Trash2 size={18}/></button>)}</div>))}</div>
               </div>
-            )}
-
-            {activeTab === 'admins' && (
-              <div className="space-y-4">
-                <div className="p-5 bg-gray-50 rounded-2xl border border-dashed border-[#c5a065]/50 shadow-sm">
-                  <h3 className="font-bold text-sm mb-4 text-gray-700"><UserPlus size={18}/> 授權新管理帳號</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-                    <input type="text" value={newAdminUser} onChange={e=>setNewAdminUser(e.target.value)} className="p-3 bg-white shadow-inner rounded-xl font-bold border-none outline-none" placeholder="帳號名稱" />
-                    <input type="text" value={newAdminPass} onChange={e=>setNewAdminPass(e.target.value)} className="p-3 bg-white shadow-inner rounded-xl font-bold border-none outline-none" placeholder="登入密碼" />
-                  </div>
-                  <button onClick={async () => { if(!newAdminUser || !newAdminPass) return; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'admins', newAdminUser), { username: newAdminUser, password: newAdminPass }); setNewAdminUser(''); setNewAdminPass(''); }} className="w-full py-3 bg-[#1a1a1a] text-[#c5a065] rounded-xl font-bold active:scale-95">確認並發布權限</button>
-                </div>
-                <div className="space-y-2">
-                   <p className="text-[10px] font-black text-gray-400 pl-1 uppercase tracking-widest font-bold">目前管理員名單</p>
-                   {adminList.map(a => (<div key={a.username} className="p-4 bg-white border border-gray-100 rounded-2xl flex justify-between items-center shadow-sm"><div className="flex items-center gap-3"><div className="p-2 bg-[#c5a065]/10 rounded-full text-[#c5a065]"><ShieldCheck size={18}/></div><p className="font-bold text-gray-800">{a.username}</p></div>{adminList.length > 1 ? (<button onClick={async () => { if(confirm(`確定移除 ${a.username} 的權限？`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'admins', a.username)); }} className="text-red-300 hover:text-red-500 transition-colors"><Trash2 size={20}/></button>) : (<span className="text-[10px] font-bold text-gray-300 italic">最後帳號不可刪除</span>)}</div>))}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'history' && (
-              <div className="space-y-3"><h3 className="font-bold border-l-4 border-[#c5a065] pl-2 text-gray-800 mb-4">{filterStaff === 'all' ? '歷史明細全清單' : `${filterStaff} 的回報歷史`}</h3><div className="space-y-3">{historyLogs.map(log => (<div key={log.id} className={`p-4 rounded-2xl border-l-4 shadow-sm border-gray-100 ${log.type === 'check' ? 'border-red-400 bg-red-50/50' : 'border-green-400 bg-green-50/50'}`}><div className="flex justify-between items-start mb-1"><p className="font-bold text-sm text-gray-800">{log.dateStr} - {log.staffName}</p><p className="text-[8px] font-black text-gray-400 uppercase bg-white/50 px-2 py-0.5 rounded-full">{log.type === 'check' ? '查核' : '加給'}</p></div>{log.type === 'check' ? (<p className="text-xs text-red-500 font-bold leading-relaxed">紀錄項目：{log.defectCount} 項 ({log.uncheckedItems?.join('、') || '無'})</p>) : (<p className="text-xs text-green-600 font-bold leading-relaxed">加給津貼：${log.totalAmount} (達成 {log.dutyCount} 項任務)</p>)}{log.manualNote && <p className="text-[10px] text-gray-400 mt-2 bg-white/30 p-2 rounded-lg italic">備註：{log.manualNote}</p>}</div>))}</div></div>
             )}
           </div>
         </div>
@@ -462,63 +390,72 @@ export default function App() {
     );
   }
 
-  // --- 主頁查核流程 ---
+  // --- 主填寫流程 ---
   return (
-    <div className="min-h-screen bg-gray-100 pb-32">
+    <div className="min-h-screen bg-gray-100 pb-36">
       <Header />
-      <div className="max-w-2xl mx-auto px-4 mt-4 grid grid-cols-2 gap-3">
-        <button onClick={() => setPage('check')} className={`py-4 rounded-2xl font-bold flex flex-col items-center justify-center transition-all border-2 ${page === 'check' ? 'bg-white border-[#c5a065] text-[#c5a065] shadow-lg scale-105 z-10' : 'bg-gray-50 border-transparent text-gray-400'}`}><AlertCircle size={20} /><span className="text-xs mt-1 font-black">查核系統</span></button>
-        <button onClick={() => setPage('duty')} className={`py-4 rounded-2xl font-bold flex flex-col items-center justify-center transition-all border-2 ${page === 'duty' ? 'bg-white border-green-500 text-green-600 shadow-lg scale-105 z-10' : 'bg-gray-50 border-transparent text-gray-400'}`}><Coins size={20} /><span className="text-xs mt-1 font-black">輪值評分</span></button>
+      <div className="max-w-2xl mx-auto px-4 mt-6 grid grid-cols-2 gap-4">
+        <button onClick={() => setPage('check')} className={`py-5 rounded-[2rem] font-black flex flex-col items-center justify-center transition-all border-4 ${page === 'check' ? 'bg-white border-[#c5a065] text-[#c5a065] shadow-2xl scale-105 z-10' : 'bg-gray-50 border-transparent text-gray-400 opacity-60'}`}><AlertCircle size={22} /><span className="text-[12px] mt-1 font-black">查核系統</span></button>
+        <button onClick={() => setPage('duty')} className={`py-5 rounded-[2rem] font-black flex flex-col items-center justify-center transition-all border-4 ${page === 'duty' ? 'bg-white border-green-500 text-green-600 shadow-2xl scale-105 z-10' : 'bg-gray-50 border-transparent text-gray-400 opacity-60'}`}><Coins size={22} /><span className="text-[12px] mt-1 font-black">輪值評分</span></button>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 mt-6 space-y-6">
-        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-200 space-y-4">
-          <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase pl-2">日期選擇</label><input type="date" className="w-full p-4 bg-gray-50 border-none rounded-2xl font-bold text-gray-700 outline-none shadow-inner" value={formData.date} onChange={e=>setFormData({...formData, date: e.target.value})} /></div>
-          <div className="space-y-1"><label className="text-[10px] font-black text-gray-400 uppercase pl-2">{page === 'duty' ? '輪值店長' : '查核員工'}</label><select className="w-full p-4 bg-gray-50 border-none rounded-2xl font-bold outline-none appearance-none text-gray-700 shadow-inner" value={formData.staffName} onChange={e=>setFormData({...formData, staffName: e.target.value})}><option value="">點擊選擇人員</option>{staffList.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+      <div className="max-w-2xl mx-auto px-4 mt-8 space-y-6">
+        <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-gray-200 space-y-6">
+          <div className="space-y-1"><label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-2">日期</label><input type="date" className="w-full p-4 bg-gray-50 border-none rounded-[1.8rem] font-black text-gray-700 outline-none shadow-inner" value={formData.date} onChange={e=>setFormData({...formData, date: e.target.value})} /></div>
+          <div className="space-y-1"><label className="text-[11px] font-black text-gray-400 uppercase tracking-widest pl-2">查核人員</label><select className="w-full p-4 bg-gray-50 border-none rounded-[1.8rem] font-black outline-none appearance-none text-gray-700 shadow-inner" value={formData.staffName} onChange={e=>setFormData({...formData, staffName: e.target.value})}><option value="">點擊選擇人員</option>{staffList.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
         </div>
 
         {page === 'check' ? (
-          <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="space-y-6">
             {DEFECT_PAGES.map(cat => {
               const items = checklistItems.filter(i => i.category === cat);
               if (!items.length) return null;
-              return (<div key={cat} className="space-y-3"><h3 className="text-[11px] font-black text-gray-400 px-4 flex items-center gap-2 tracking-widest uppercase font-black"><div className="w-1.5 h-3 bg-[#c5a065] rounded-full"></div> {cat}</h3><div className="bg-white rounded-[2rem] shadow-sm overflow-hidden divide-y divide-gray-50 border border-gray-100">{items.map(it => (<div key={it.id} onClick={() => handleCheck(it.id)} className={`p-5 flex items-center gap-4 cursor-pointer transition-all ${formData.checkedItems[it.id] ? 'bg-red-50/50' : 'active:bg-gray-50'}`}><div className={`w-8 h-8 rounded-xl flex items-center justify-center border-2 transition-all duration-300 ${formData.checkedItems[it.id] ? 'bg-red-500 border-red-500 shadow-lg scale-110' : 'bg-white border-gray-200'}`}>{formData.checkedItems[it.id] ? <X size={18} className="text-white" /> : <div className="w-1 h-1 bg-gray-200 rounded-full"></div>}</div><span className={`text-[15px] flex-1 ${formData.checkedItems[it.id] ? 'text-red-600 font-black' : 'text-gray-600 font-medium'}`}>{it.text}</span></div>))}</div></div>);
+              return (<div key={cat} className="space-y-3"><h3 className="text-[12px] font-black text-gray-500 px-5 flex items-center gap-3 font-black tracking-widest"><div className="w-1.5 h-4 bg-[#c5a065] rounded-full"></div> {cat}</h3><div className="bg-white rounded-[2.8rem] shadow-md overflow-hidden divide-y divide-gray-50 border border-gray-100">{items.map(it => (<div key={it.id} onClick={() => handleCheck(it.id)} className={`p-6 flex items-center gap-5 cursor-pointer transition-all ${formData.checkedItems[it.id] ? 'bg-red-50/60' : 'active:bg-gray-100/50'}`}><div className={`w-9 h-9 rounded-2xl flex items-center justify-center border-4 transition-all duration-300 ${formData.checkedItems[it.id] ? 'bg-red-500 border-red-500 shadow-lg scale-110' : 'bg-white border-gray-200'}`}>{formData.checkedItems[it.id] ? <X size={20} className="text-white font-black" /> : <div className="w-1.5 h-1.5 bg-gray-200 rounded-full"></div>}</div><span className={`text-[16px] flex-1 font-bold ${formData.checkedItems[it.id] ? 'text-red-700 font-black' : 'text-gray-600'}`}>{it.text}</span></div>))}</div></div>);
             })}
-            <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/95 backdrop-blur-md z-[100] border-t safe-bottom flex items-center justify-center gap-4 shadow-2xl"><div className="max-w-2xl w-full flex items-center gap-4"><div className="flex-1"><p className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">當前查核項</p><p className="text-2xl font-black text-red-500 leading-none">{checklistItems.filter(i => DEFECT_PAGES.includes(i.category) && formData.checkedItems[i.id]).length}<span className="text-xs ml-1 font-bold">項</span></p></div><button onClick={() => handleSubmit('check')} className="flex-[1.5] md:flex-none md:w-64 py-3.5 bg-[#1a1a1a] text-[#c5a065] rounded-xl font-bold shadow-lg active:scale-95 border border-[#c5a065]/20 text-sm flex items-center justify-center gap-2"><Send size={16} /> 查核提交</button></div></div>
+            <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/95 backdrop-blur-xl z-[100] border-t-2 border-gray-100 safe-bottom flex items-center justify-center gap-6 shadow-2xl"><div className="max-w-2xl w-full flex items-center gap-6"><div className="flex-1"><p className="text-[10px] text-gray-400 font-black uppercase mb-1">查核項數</p><p className="text-3xl font-black text-red-600 leading-none">{checklistItems.filter(i => DEFECT_PAGES.includes(i.category) && formData.checkedItems[i.id]).length}<span className="text-[14px] ml-1.5 font-black uppercase text-gray-300">Items</span></p></div><button onClick={() => handleSubmit('check')} className="flex-[2] py-4 bg-[#1a1a1a] text-[#c5a065] rounded-[1.5rem] font-black shadow-2xl active:scale-95 transition-all"><Send size={20} className="inline mr-2" /> 提交</button></div></div>
           </div>
         ) : (
-          <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="space-y-6">
             {DUTY_PAGES.map(cat => {
               const items = checklistItems.filter(i => i.category === cat);
               if (!items.length) return null;
-              return (<div key={cat} className="space-y-3"><h3 className="text-[11px] font-black text-gray-400 px-4 flex items-center gap-2 tracking-widest uppercase font-black"><div className="w-1.5 h-3 bg-green-500 rounded-full"></div> {cat}</h3><div className="bg-white rounded-[2rem] shadow-sm overflow-hidden divide-y divide-gray-50 border border-gray-100">{items.map(it => (<div key={it.id} onClick={() => handleCheck(it.id)} className={`p-5 flex items-center gap-4 cursor-pointer transition-all ${formData.checkedItems[it.id] ? 'bg-green-50' : 'active:bg-gray-50'}`}><div className={`w-8 h-8 rounded-xl flex items-center justify-center border-2 transition-all duration-300 ${formData.checkedItems[it.id] ? 'bg-green-500 border-green-500 shadow-lg scale-110' : 'bg-white border-gray-200'}`}>{formData.checkedItems[it.id] ? <Check size={18} className="text-white" /> : <div className="w-1 h-1 bg-gray-200 rounded-full"></div>}</div><div className="flex-1 text-gray-600"><p className={`text-[15px] leading-tight ${formData.checkedItems[it.id] ? 'text-green-700 font-black' : 'font-medium'}`}>{it.text}</p><p className="text-[10px] font-bold uppercase mt-1 text-green-500">+ ${it.value} 加給</p></div></div>))}</div></div>);
+              return (<div key={cat} className="space-y-3"><h3 className="text-[12px] font-black text-gray-500 px-5 flex items-center gap-3 font-black tracking-widest"><div className="w-1.5 h-4 bg-green-500 rounded-full"></div> {cat}</h3><div className="bg-white rounded-[2.8rem] shadow-md overflow-hidden divide-y divide-gray-50 border border-gray-100">{items.map(it => (<div key={it.id} onClick={() => handleCheck(it.id)} className={`p-6 flex items-center gap-5 cursor-pointer transition-all ${formData.checkedItems[it.id] ? 'bg-green-50/60' : 'active:bg-gray-100/50'}`}><div className={`w-9 h-9 rounded-2xl flex items-center justify-center border-4 transition-all duration-300 ${formData.checkedItems[it.id] ? 'bg-green-500 border-green-500 shadow-lg scale-110' : 'bg-white border-gray-200'}`}>{formData.checkedItems[it.id] ? <Check size={20} className="text-white font-black" /> : <div className="w-1.5 h-1.5 bg-gray-200 rounded-full"></div>}</div><div className="flex-1 text-gray-600"><p className={`text-[16px] font-bold ${formData.checkedItems[it.id] ? 'text-green-800 font-black' : ''}`}>{it.text}</p><p className="text-[11px] font-black uppercase mt-1 text-green-500">+ ${it.value} 津貼</p></div></div>))}</div></div>);
             })}
-            <div className="fixed bottom-0 left-0 right-0 p-6 bg-white/95 backdrop-blur-md z-[100] border-t safe-bottom flex items-center justify-center gap-4 shadow-2xl"><div className="max-w-2xl w-full flex items-center gap-4"><div className="flex-1"><p className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">總津貼金額</p><p className="text-2xl font-black text-green-600 leading-none"><span className="text-base font-bold mr-0.5">$</span>{checklistItems.filter(i => DUTY_PAGES.includes(i.category) && formData.checkedItems[i.id]).reduce((s,i)=>s+(i.value||0),0)}</p></div><button onClick={() => handleSubmit('duty')} className="flex-[1.5] md:flex-none md:w-64 py-3.5 bg-[#1a1a1a] text-[#c5a065] rounded-xl font-bold shadow-lg active:scale-95 border border-[#c5a065]/20 text-sm flex items-center justify-center gap-2"><Coins size={16} /> 獎金提交</button></div></div>
+            <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/95 backdrop-blur-xl z-[100] border-t-2 border-gray-100 safe-bottom flex items-center justify-center gap-6 shadow-2xl"><div className="max-w-2xl w-full flex items-center gap-6"><div className="flex-1"><p className="text-[10px] text-gray-400 font-black uppercase mb-1">累計津貼</p><p className="text-3xl font-black text-green-600 leading-none"><span className="text-[16px] font-black mr-1">$</span>{checklistItems.filter(i => DUTY_PAGES.includes(i.category) && formData.checkedItems[i.id]).reduce((s,i)=>s+(i.value||0),0)}</p></div><button onClick={() => handleSubmit('duty')} className="flex-[2] py-4 bg-[#1a1a1a] text-[#c5a065] rounded-[1.5rem] font-black shadow-2xl active:scale-95 transition-all"><Coins size={20} className="inline mr-2" /> 提交</button></div></div>
           </div>
         )}
 
-        <div className="bg-white p-6 rounded-3xl space-y-2 border border-gray-200 shadow-sm"><label className="text-[10px] font-black text-red-400 flex items-center gap-1 pl-2 uppercase tracking-widest font-black"><AlertTriangle size={14}/> 異常匯報或備註 (選填)</label><textarea placeholder="若有特殊狀況請在此輸入細節..." className="w-full p-4 bg-gray-50 border-none rounded-2xl h-24 text-sm resize-none outline-none text-gray-700" value={formData.manualNote} onChange={e=>setFormData({...formData, manualNote: e.target.value})} /></div>
+        <div className="bg-white p-8 rounded-[2.5rem] space-y-3 border border-gray-200 shadow-sm mb-10"><label className="text-[11px] font-black text-red-500 flex items-center gap-2 pl-2 uppercase font-black"><AlertTriangle size={16} /> 備註 (選填)</label><textarea placeholder="輸入詳細內容..." className="w-full p-5 bg-gray-50 border-none rounded-[1.8rem] h-32 text-sm outline-none text-gray-700 shadow-inner font-bold" value={formData.manualNote} onChange={e=>setFormData({...formData, manualNote: e.target.value})} /></div>
       </div>
 
       {/* 成功彈窗 */}
       {view === 'success' && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-6 z-[200] backdrop-blur-md">
-          <div className="bg-white p-10 rounded-[3rem] w-full max-w-sm text-center shadow-2xl border border-gray-100 animate-in zoom-in-95 duration-300">
-            <div className="text-6xl mb-6">{lastSubmitType === 'check' ? '🚨' : '💰'}</div>
-            <h2 className="text-2xl font-bold mb-2 text-gray-800 tracking-tight text-center">查核上報完成！</h2>
-            <div className="bg-gray-50 p-6 rounded-3xl mb-8 space-y-2 border border-gray-100 text-center">{lastSubmitType === 'check' ? (<p className="text-red-500 font-bold text-lg tracking-tight">紀錄項目：{checklistItems.filter(i => DEFECT_PAGES.includes(i.category) && formData.checkedItems[i.id]).length} 項</p>) : (<p className="text-green-600 font-black text-3xl">$ {checklistItems.filter(i => DUTY_PAGES.includes(i.category) && formData.checkedItems[i.id]).reduce((s,i)=>s+(i.value||0),0)}</p>)}<p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">已同步至雲端伺服器</p></div>
-            <div className="space-y-4"><button onClick={() => {
-                let t = `【多那之回報】\n日期：${formData.date}\n👤 對象：${formData.staffName}\n`;
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-6 z-[200] backdrop-blur-xl">
+          <div className="bg-white p-12 rounded-[3.5rem] w-full max-w-sm text-center shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="text-7xl mb-8">{lastSubmitType === 'check' ? '🚨' : '💰'}</div>
+            <h2 className="text-3xl font-black mb-3 text-gray-800 tracking-tight">上報完成！</h2>
+            <div className="bg-gray-50 p-8 rounded-[2.5rem] mb-10 space-y-3 border border-gray-100 text-center shadow-inner">
+               {lastSubmitType === 'check' ? (
+                 <p className="text-red-500 font-black text-xl">紀錄項目：{checklistItems.filter(i => DEFECT_PAGES.includes(i.category) && formData.checkedItems[i.id]).length} 項</p>
+               ) : (
+                 <p className="text-green-600 font-black text-4xl">$ {checklistItems.filter(i => DUTY_PAGES.includes(i.category) && formData.checkedItems[i.id]).reduce((s,i)=>s+(i.value||0),0)}</p>
+               )}
+            </div>
+            <div className="space-y-4">
+              <button onClick={() => {
+                let t = `【回報】\n日期：${formData.date}\n👤 對象：${formData.staffName}\n`;
                 if (lastSubmitType === 'check') {
                   const items = checklistItems.filter(i => DEFECT_PAGES.includes(i.category) && formData.checkedItems[i.id]);
-                  t += `⚠️ 紀錄項目：${items.length} 項\n${items.map(i => `- ${i.text}`).join('\n')}\n`;
+                  t += `⚠️ 紀錄：${items.length} 項\n${items.map(i => `- ${i.text}`).join('\n')}\n`;
                 } else {
                   const items = checklistItems.filter(i => DUTY_PAGES.includes(i.category) && formData.checkedItems[i.id]);
-                  t += `✅ 達成加給：${items.length} 項\n💰 總計津貼：$${items.reduce((s,i)=>s+(i.value||0),0)}\n`;
+                  t += `✅ 津貼：${items.length} 項\n💰 金額：$${items.reduce((s,i)=>s+(i.value||0),0)}\n`;
                 }
                 if (formData.manualNote) t += `📝 備註：${formData.manualNote}`;
-                navigator.clipboard.writeText(t); alert("回報文字已複製，可貼上至 Line。");
-              }} className="w-full bg-[#c5a065] text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95"><ClipboardList size={18} /> 複製 Line 回報</button><button onClick={() => window.location.reload()} className="w-full text-gray-400 font-bold text-sm hover:text-gray-600">返回首頁</button></div>
+                navigator.clipboard.writeText(t); alert("成功複製文字！");
+              }} className="w-full bg-[#c5a065] text-white py-5 rounded-[1.5rem] font-black shadow-2xl active:scale-95 transition-all">複製 Line 回報</button>
+              <button onClick={() => window.location.reload()} className="w-full text-gray-400 font-black text-xs pt-2 uppercase tracking-widest hover:text-gray-600">回首頁</button>
+            </div>
           </div>
         </div>
       )}
@@ -526,7 +463,7 @@ export default function App() {
       <style dangerouslySetInnerHTML={{ __html: `
         .safe-top { padding-top: env(safe-area-inset-top); }
         .safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 1.5rem); }
-        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: contain; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background: #f9fafb; }
         select, input, textarea { font-size: 16px !important; }
       `}} />
     </div>
