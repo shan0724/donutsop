@@ -400,6 +400,8 @@ export default function App() {
       alert("系統正在連線中，請稍候再試...");
       return;
     }
+
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     
     try {
       const adminRef = doc(db, `artifacts/${appId}/public/data/admins`, cleanUser);
@@ -446,6 +448,7 @@ export default function App() {
 
   const fetchAdmins = async () => {
     if (!db || !user || isOffline) return;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       const q = query(collection(db, `artifacts/${appId}/public/data/admins`));
       const querySnapshot = await getDocs(q);
@@ -466,6 +469,7 @@ export default function App() {
     const cleanUser = newAdminUser.trim();
     const cleanPass = newAdminPass.trim();
 
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       const adminRef = doc(db, `artifacts/${appId}/public/data/admins`, cleanUser);
       const docSnap = await getDoc(adminRef);
@@ -492,6 +496,7 @@ export default function App() {
 
     if (!confirm(`確定要刪除管理員 ${targetUsername} 嗎？此操作無法復原。`)) return;
     
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       await deleteDoc(doc(db, `artifacts/${appId}/public/data/admins`, targetUsername));
       
@@ -519,6 +524,7 @@ export default function App() {
 
   const fetchHistory = async () => {
     if (!db || !user || isOffline) return;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       const q = query(collection(db, `artifacts/${appId}/public/data/reports`), orderBy("timestamp", "desc"), limit(20));
       const querySnapshot = await getDocs(q);
@@ -531,6 +537,7 @@ export default function App() {
 
   const fetchMonthlyStats = async (monthStr) => {
     if (!db || !user || isOffline) return;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     const startStr = `${monthStr}-01`;
     const endStr = `${monthStr}-31`;
     try {
@@ -564,6 +571,7 @@ export default function App() {
   // Fetch Threshold Setting
   const fetchThreshold = async () => {
     if (!db || !user || isOffline) return;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       const docRef = doc(db, `artifacts/${appId}/public/data/settings`, 'config');
       const docSnap = await getDoc(docRef);
@@ -581,6 +589,7 @@ export default function App() {
       alert("離線模式無法儲存設定");
       return;
     }
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       await setDoc(doc(db, `artifacts/${appId}/public/data/settings`, 'config'), {
         failureThreshold: Number(failureThreshold)
@@ -611,6 +620,7 @@ export default function App() {
       alert("名字已存在");
       return;
     }
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       await setDoc(doc(db, `artifacts/${appId}/public/data/staff`, newStaffName), { name: newStaffName });
       setStaffList([...staffList, newStaffName]);
@@ -626,6 +636,7 @@ export default function App() {
       setStaffList(staffList.filter(n => n !== name));
       return;
     }
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       await deleteDoc(doc(db, `artifacts/${appId}/public/data/staff`, name));
       setStaffList(staffList.filter(n => n !== name));
@@ -661,6 +672,7 @@ export default function App() {
       return;
     }
 
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       // 1. Create new doc
       await setDoc(doc(db, `artifacts/${appId}/public/data/staff`, editingStaffNewName), { name: editingStaffNewName });
@@ -684,6 +696,7 @@ export default function App() {
       alert("離線模式：已暫時新增");
       return;
     }
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       const newItem = { text: newItemText, category: newItemCategory };
       const docRef = await addDoc(collection(db, `artifacts/${appId}/public/data/items`), newItem);
@@ -723,6 +736,7 @@ export default function App() {
     }
 
     if (!db) { alert("資料庫連線異常"); return; }
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     
     try {
       const itemRef = doc(db, `artifacts/${appId}/public/data/items`, id);
@@ -749,6 +763,7 @@ export default function App() {
       setChecklistItems(checklistItems.filter(item => item.id !== id));
       return;
     }
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     try {
       await deleteDoc(doc(db, `artifacts/${appId}/public/data/items`, id));
       setChecklistItems(checklistItems.filter(item => item.id !== id));
@@ -760,6 +775,7 @@ export default function App() {
   const initDefaultData = async () => {
     if (isOffline) { alert("離線模式無法寫入資料庫"); return; }
     if(!confirm("確定要將現有的預設資料寫入資料庫嗎？")) return;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
     
     setLoading(true);
     try {
@@ -1228,48 +1244,6 @@ export default function App() {
             </div>
           )}
 
-        </div>
-      </div>
-    );
-  }
-
-  if (view === 'success') {
-    return (
-      <div className="min-h-screen bg-gray-100 flex flex-col items-center pt-20 px-4">
-        <div className="bg-white p-8 rounded-lg shadow-xl text-center max-w-md w-full">
-          {isOffline ? (
-             <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
-               <AlertTriangle size={48} className="text-yellow-600" />
-             </div>
-          ) : (
-             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-               <CheckCircle size={48} className="text-green-600" />
-             </div>
-          )}
-          
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">
-            {isOffline ? "報表已生成 (離線)" : "評分已送出！"}
-          </h2>
-          <p className="text-gray-600 mb-6">
-            {isOffline ? "因未連接雲端，請務必點擊下方按鈕複製內容。" : "資料已安全儲存至雲端。"}
-          </p>
-          
-          <button onClick={copyReport} className="w-full bg-[#c5a065] text-white py-3 rounded font-bold mb-3 hover:bg-[#b08d55] transition">
-            <ClipboardList className="inline mr-2" size={18}/>
-            複製內容 (貼到 LINE)
-          </button>
-          
-          <button onClick={exportCurrentReportToCSV} className="w-full bg-green-600 text-white py-3 rounded font-bold mb-3 hover:bg-green-700 transition">
-             <Download className="inline mr-2" size={18}/>
-             下載
-          </button>
-
-          <button onClick={() => {
-            setFormData({ ...formData, checkedItems: {}, manualNote: '' });
-            setView('form');
-          }} className="w-full bg-gray-200 text-gray-700 py-3 rounded font-bold">
-            返回首頁
-          </button>
         </div>
       </div>
     );
