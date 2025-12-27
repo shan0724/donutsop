@@ -11,48 +11,39 @@
     <link rel="apple-touch-icon" href="https://i.postimg.cc/Yqkyt94q/352653153_1294597047840225_8043764672305305974_n.jpg" />
     <link rel="icon" type="image/jpeg" href="https://i.postimg.cc/Yqkyt94q/352653153_1294597047840225_8043764672305305974_n.jpg" />
     
-    <!-- 讓網頁在手機上呈現 App 感 (Web App Manifest 簡化設定) -->
+    <!-- 讓網頁在手機上呈現 App 感 -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="歐樂沃查核" />
     <meta name="theme-color" content="#1a1a1a" />
 
-    <!-- 載入 Tailwind CSS (樣式支援) -->
+    <!-- 載入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <style>
-      /* 基本防護：防止長按彈出菜單，讓操作更像原生 App */
+      /* 基本防護 */
       * {
         -webkit-touch-callout: none;
         -webkit-user-select: none;
         user-select: none;
       }
       
-      /* 允許輸入框可以選擇文字 */
       input, textarea {
         -webkit-user-select: text;
         user-select: text;
       }
 
       html, body {
-        background-color: #f9fafb; /* 與 App 背景色一致 */
+        background-color: #f9fafb;
         margin: 0;
         padding: 0;
         overflow-x: hidden;
-        height: 100%;
-      }
-
-      #root {
-        height: 100%;
       }
     </style>
   </head>
   <body>
-    <!-- React 應用程式掛載點 -->
     <div id="root"></div>
-
     <!-- 引入進入點程式碼 -->
-    <!-- 請確保您的專案結構中 src 資料夾下有 main.jsx -->
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
