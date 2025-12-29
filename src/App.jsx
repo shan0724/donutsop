@@ -13,7 +13,8 @@ import {
   doc, 
   setDoc, 
   deleteDoc, 
-  onSnapshot
+  onSnapshot,
+  writeBatch
 } from "firebase/firestore";
 import { 
   Settings, 
@@ -22,8 +23,6 @@ import {
   ClipboardList, 
   BarChart3, 
   X, 
-  Shield, 
-  AlertCircle, 
   Check, 
   Coins, 
   Send,
@@ -31,11 +30,10 @@ import {
   Download,
   DollarSign,
   ShieldCheck,
-  UserPlus,
   Lock,
   Unlock,
-  Plus,
-  AlertTriangle
+  AlertTriangle,
+  AlertCircle
 } from 'lucide-react';
 
 // ------------------------------------------------------------------
@@ -134,8 +132,6 @@ export default function App() {
   const [statsMonth, setStatsMonth] = useState(new Date().toISOString().slice(0, 7));
   const [newStaffName, setNewStaffName] = useState('');
   const [filterStaff, setFilterStaff] = useState('all');
-  const [newAdminUser, setNewAdminUser] = useState('');
-  const [newAdminPass, setNewAdminPass] = useState('');
 
   const [isStaffEditMode, setIsStaffEditMode] = useState(false);
   const [isItemEditMode, setIsItemEditMode] = useState(false);
@@ -143,6 +139,30 @@ export default function App() {
   const [newItemText, setNewItemText] = useState('');
   const [newItemCat, setNewItemCat] = useState('吧檯');
   const [newItemValue, setNewItemValue] = useState(1000);
+
+  // 自訂 Confirm Modal 狀態
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  });
+
+  // Toast 狀態
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast({ ...toast, show: false }), 3000);
+  };
+
+  const openConfirm = (title, message, onConfirm) => {
+    setConfirmModal({ isOpen: true, title, message, onConfirm });
+  };
+
+  const closeConfirm = () => {
+    setConfirmModal({ ...confirmModal, isOpen: false });
+  };
 
   // --- 初始化手機圖示與標題 ---
   useEffect(() => {
@@ -186,13 +206,35 @@ export default function App() {
     });
 
     const unsubItems = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'items'), (snap) => {
-      if (snap.empty) setChecklistItems(DEFAULT_ITEMS);
-      else setChecklistItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      if (snap.empty) {
+        // 自動初始化標準項目
+        const batch = writeBatch(db);
+        DEFAULT_ITEMS.forEach(item => {
+           const ref = doc(db, 'artifacts', appId, 'public', 'data', 'items', item.id);
+           batch.set(ref, item);
+        });
+        batch.commit();
+        setChecklistItems(DEFAULT_ITEMS);
+      }
+      else {
+        setChecklistItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }
       setLoading(false);
     });
 
     const unsubStaff = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'staff'), (snap) => {
-      setStaffList(snap.empty ? DEFAULT_STAFF : snap.docs.map(d => d.data().name));
+      if (snap.empty) {
+        // 修正：如果為空，則寫入預設名單到資料庫，而不是只在前端顯示
+        // 這樣刪除功能才能真正運作（因為檔案真實存在）
+        const batch = writeBatch(db);
+        DEFAULT_STAFF.forEach(name => {
+          const ref = doc(db, 'artifacts', appId, 'public', 'data', 'staff', name);
+          batch.set(ref, { name });
+        });
+        batch.commit();
+      } else {
+        setStaffList(snap.docs.map(d => d.data().name));
+      }
     });
 
     return () => { unsubAdmins(); unsubItems(); unsubStaff(); };
@@ -255,7 +297,7 @@ export default function App() {
 
   const handleSubmit = async (type) => {
     if (!user) return;
-    if (!formData.staffName) { alert(`請選擇對象`); return; }
+    if (!formData.staffName) { showToast(`請選擇對象`, 'error'); return; }
     const isCheck = type === 'check';
     const items = checklistItems.filter(i => (isCheck ? DEFECT_PAGES : DUTY_PAGES).includes(i.category) && formData.checkedItems[i.id]);
     const report = {
@@ -273,11 +315,11 @@ export default function App() {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'reports'), report);
       setLastSubmitType(type);
       setView('success');
-    } catch (e) { alert("發送失敗"); }
+    } catch (e) { showToast("發送失敗", 'error'); }
   };
 
   const Header = () => (
-    <div className="bg-[#1a1a1a] text-[#c5a065] p-5 text-center border-b-4 border-[#c5a065] shadow-md sticky top-0 z-[100] safe-top">
+    <div className="bg-[#1a1a1a] text-[#c5a065] p-5 text-center border-b-4 border-[#c5a065] shadow-md sticky top-0 z-[50] safe-top">
       <h1 className="text-xl font-bold tracking-widest text-white font-serif mb-0.5 uppercase">多那之歐樂沃城堡門市</h1>
       <p className="text-[10px] text-[#c5a065] tracking-[0.2em] font-bold uppercase opacity-80">
         {view === 'admin' ? 'Management Dashboard' : (page === 'check' ? '查核系統' : '輪值評分系統')}
@@ -286,6 +328,47 @@ export default function App() {
       {view === 'admin' && <button onClick={() => { setIsAdmin(false); setView('main'); setFilterStaff('all'); }} className="absolute top-1/2 -translate-y-1/2 right-4 bg-red-900/30 text-red-500 px-3 py-1 rounded-full text-xs font-black border border-red-900/20 active:scale-95 transition-all">登出</button>}
     </div>
   );
+
+  // --- 自訂 Confirm Modal Component ---
+  const ConfirmDialog = () => {
+    if (!confirmModal.isOpen) return null;
+    return (
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="bg-white w-full max-w-xs rounded-3xl shadow-2xl p-6 text-center transform transition-all scale-100">
+          <div className="w-12 h-12 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+             <Trash2 size={24} />
+          </div>
+          <h3 className="text-lg font-black text-gray-800 mb-2">{confirmModal.title}</h3>
+          <p className="text-gray-500 text-sm mb-6 font-bold">{confirmModal.message}</p>
+          <div className="flex gap-3">
+            <button onClick={closeConfirm} className="flex-1 py-3 bg-gray-100 text-gray-500 rounded-xl font-black text-sm active:scale-95 transition-transform">
+              取消
+            </button>
+            <button 
+              onClick={async () => {
+                await confirmModal.onConfirm();
+                closeConfirm();
+              }} 
+              className="flex-1 py-3 bg-red-500 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-transform"
+            >
+              確認刪除
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // --- Toast Component ---
+  const ToastNotification = () => {
+    if (!toast.show) return null;
+    return (
+      <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[250] px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-2 animate-in slide-in-from-top-4 duration-300 font-bold text-sm ${toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-green-600 text-white'}`}>
+        {toast.type === 'error' ? <AlertCircle size={18}/> : <Check size={18}/>}
+        {toast.message}
+      </div>
+    );
+  };
 
   if (loading && !user) {
     return (
@@ -299,6 +382,7 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-100 flex flex-col">
         <Header />
+        <ToastNotification />
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="w-full max-w-sm bg-white p-8 rounded-[2rem] shadow-2xl text-center border">
             <img src={LOGO_URL} className="w-20 h-20 rounded-full mx-auto mb-6 shadow-xl" alt="Logo" />
@@ -308,8 +392,8 @@ export default function App() {
               <input type="password" placeholder="密碼" className="w-full p-4 bg-gray-50 border-none rounded-2xl outline-none font-bold" value={loginPass} onChange={e=>setLoginPass(e.target.value)} />
               <button onClick={() => {
                 const found = adminList.find(a => a.username === loginUser && a.password === loginPass);
-                if (found) { setIsAdmin(true); setView('admin'); } else { alert("帳號或密碼錯誤"); }
-              }} className="w-full py-4 bg-[#c5a065] text-white rounded-2xl font-black shadow-lg">登入系統</button>
+                if (found) { setIsAdmin(true); setView('admin'); } else { showToast("帳號或密碼錯誤", 'error'); }
+              }} className="w-full py-4 bg-[#c5a065] text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all">登入系統</button>
               <button onClick={()=>setView('main')} className="w-full py-2 text-gray-400 font-bold text-sm hover:text-gray-600 transition-colors">返回</button>
             </div>
           </div>
@@ -323,6 +407,8 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-100 pb-24">
         <Header />
+        <ConfirmDialog />
+        <ToastNotification />
         <div className="max-w-4xl mx-auto mt-6 px-4 space-y-4">
           <div className="flex bg-white rounded-2xl shadow-md p-1 border overflow-x-auto gap-1">
             {[{id:'stats', label:'數據統計', icon: BarChart3}, {id:'staff', label:'員工管理', icon: Users}, {id:'items', label:'標準維護', icon: ClipboardList}, {id:'admins', label:'帳號權限', icon: ShieldCheck}, {id:'history', label:'報表歷史', icon: History}].map(tab => (
@@ -367,10 +453,20 @@ export default function App() {
                     {DUTY_PAGES.includes(newItemCat) && (
                       <div className="flex items-center gap-3 bg-green-50 p-3 rounded-xl border border-green-100"><DollarSign size={18} className="text-green-600"/><input type="number" value={newItemValue} onChange={e=>setNewItemValue(e.target.value)} className="bg-transparent w-full outline-none font-black text-green-700 text-lg" placeholder="金額" /></div>
                     )}
-                    <button onClick={async () => { if(!newItemText) return; await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items'), { text: newItemText, category: newItemCat, ...(DUTY_PAGES.includes(newItemCat) ? { value: Number(newItemValue) } : {}) }); setNewItemText(''); }} className="w-full py-4 bg-[#c5a065] text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all">存入標準庫</button>
+                    <button onClick={async () => { if(!newItemText) return; await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items'), { text: newItemText, category: newItemCat, ...(DUTY_PAGES.includes(newItemCat) ? { value: Number(newItemValue) } : {}) }); setNewItemText(''); showToast("新增成功"); }} className="w-full py-4 bg-[#c5a065] text-white rounded-2xl font-black shadow-lg active:scale-95 transition-all">存入標準庫</button>
                   </div>
                 </div>
-                <div className="divide-y border border-gray-100 rounded-3xl overflow-hidden shadow-sm">{checklistItems.map(it => (<div key={it.id} className="p-4 bg-white flex justify-between items-center gap-2"><div><div className="flex items-center gap-2 mb-1"><span className={`text-[8px] font-black px-2 py-0.5 rounded tracking-tighter uppercase ${DUTY_PAGES.includes(it.category) ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{it.category}</span>{it.value && <span className="text-[10px] font-bold text-green-500"><DollarSign size={10} className="inline"/>{it.value}</span>}</div><p className="text-sm text-gray-600 font-bold leading-tight">{it.text}</p></div>{isItemEditMode && (<button onClick={async () => { if(confirm(`確定刪除？`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', it.id)); }} className="text-red-400 p-2"><Trash2 size={20}/></button>)}</div>))}</div>
+                <div className="divide-y border border-gray-100 rounded-3xl overflow-hidden shadow-sm">{checklistItems.map(it => (<div key={it.id} className="p-4 bg-white flex justify-between items-center gap-2"><div><div className="flex items-center gap-2 mb-1"><span className={`text-[8px] font-black px-2 py-0.5 rounded tracking-tighter uppercase ${DUTY_PAGES.includes(it.category) ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{it.category}</span>{it.value && <span className="text-[10px] font-bold text-green-500"><DollarSign size={10} className="inline"/>{it.value}</span>}</div><p className="text-sm text-gray-600 font-bold leading-tight">{it.text}</p></div>{isItemEditMode && (
+                  <button 
+                    onClick={() => openConfirm("刪除項目", "確定要刪除此標準嗎？此操作無法復原。", async () => {
+                      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', it.id));
+                      showToast("刪除成功");
+                    })} 
+                    className="text-red-400 p-2 active:bg-red-50 rounded-full transition-colors"
+                  >
+                    <Trash2 size={20}/>
+                  </button>
+                )}</div>))}</div>
               </div>
             )}
 
@@ -380,8 +476,18 @@ export default function App() {
                   <div className="flex items-center gap-2"><div className={`p-1.5 rounded-lg ${isStaffEditMode ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{isStaffEditMode ? <Unlock size={16}/> : <Lock size={16}/>}</div><div><p className="text-sm font-bold text-gray-800">名單鎖定</p><p className="text-[10px] text-gray-400 font-bold">{isStaffEditMode ? '可刪除人員' : '鎖定中'}</p></div></div>
                   <button onClick={() => setIsStaffEditMode(!isStaffEditMode)} className={`w-14 h-8 rounded-full transition-all relative shadow-inner ${isStaffEditMode ? 'bg-red-500' : 'bg-gray-300'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${isStaffEditMode ? 'translate-x-6' : ''}`} /></button>
                 </div>
-                <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-300 shadow-sm"><div className="flex gap-2"><input type="text" value={newStaffName} onChange={e=>setNewStaffName(e.target.value)} className="flex-1 p-3 bg-white shadow-sm rounded-xl font-black outline-none text-sm" placeholder="姓名..." /><button onClick={async () => { if(!newStaffName) return; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', newStaffName), { name: newStaffName }); setNewStaffName(''); }} className="px-6 bg-[#c5a065] text-white rounded-xl font-black active:scale-95 shadow-lg">新增</button></div></div>
-                <div className="grid grid-cols-2 gap-2">{staffList.map(s => (<div key={s} className={`p-4 bg-white border rounded-2xl flex justify-between items-center shadow-sm transition-all ${isStaffEditMode ? 'border-red-100' : 'border-gray-100'}`}><span className="font-black text-gray-700 text-sm">{s}</span>{isStaffEditMode && (<button onClick={async () => { if(confirm(`確定刪除 ${s}？`)) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', s)); }} className="text-red-400 p-2"><Trash2 size={18}/></button>)}</div>))}</div>
+                <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-300 shadow-sm"><div className="flex gap-2"><input type="text" value={newStaffName} onChange={e=>setNewStaffName(e.target.value)} className="flex-1 p-3 bg-white shadow-sm rounded-xl font-black outline-none text-sm" placeholder="姓名..." /><button onClick={async () => { if(!newStaffName) return; await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', newStaffName), { name: newStaffName }); setNewStaffName(''); showToast("人員已新增"); }} className="px-6 bg-[#c5a065] text-white rounded-xl font-black active:scale-95 shadow-lg">新增</button></div></div>
+                <div className="grid grid-cols-2 gap-2">{staffList.map(s => (<div key={s} className={`p-4 bg-white border rounded-2xl flex justify-between items-center shadow-sm transition-all ${isStaffEditMode ? 'border-red-100' : 'border-gray-100'}`}><span className="font-black text-gray-700 text-sm">{s}</span>{isStaffEditMode && (
+                  <button 
+                    onClick={() => openConfirm("刪除人員", `確定要刪除 ${s} 嗎？`, async () => {
+                      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'staff', s));
+                      showToast("人員已刪除");
+                    })} 
+                    className="text-red-400 p-2 active:bg-red-50 rounded-full transition-colors"
+                  >
+                    <Trash2 size={18}/>
+                  </button>
+                )}</div>))}</div>
               </div>
             )}
           </div>
@@ -394,6 +500,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-100 pb-36">
       <Header />
+      <ToastNotification />
       <div className="max-w-2xl mx-auto px-4 mt-6 grid grid-cols-2 gap-4">
         <button onClick={() => setPage('check')} className={`py-5 rounded-[2rem] font-black flex flex-col items-center justify-center transition-all border-4 ${page === 'check' ? 'bg-white border-[#c5a065] text-[#c5a065] shadow-2xl scale-105 z-10' : 'bg-gray-50 border-transparent text-gray-400 opacity-60'}`}><AlertCircle size={22} /><span className="text-[12px] mt-1 font-black">查核系統</span></button>
         <button onClick={() => setPage('duty')} className={`py-5 rounded-[2rem] font-black flex flex-col items-center justify-center transition-all border-4 ${page === 'duty' ? 'bg-white border-green-500 text-green-600 shadow-2xl scale-105 z-10' : 'bg-gray-50 border-transparent text-gray-400 opacity-60'}`}><Coins size={22} /><span className="text-[12px] mt-1 font-black">輪值評分</span></button>
@@ -412,7 +519,7 @@ export default function App() {
               if (!items.length) return null;
               return (<div key={cat} className="space-y-3"><h3 className="text-[12px] font-black text-gray-500 px-5 flex items-center gap-3 font-black tracking-widest"><div className="w-1.5 h-4 bg-[#c5a065] rounded-full"></div> {cat}</h3><div className="bg-white rounded-[2.8rem] shadow-md overflow-hidden divide-y divide-gray-50 border border-gray-100">{items.map(it => (<div key={it.id} onClick={() => handleCheck(it.id)} className={`p-6 flex items-center gap-5 cursor-pointer transition-all ${formData.checkedItems[it.id] ? 'bg-red-50/60' : 'active:bg-gray-100/50'}`}><div className={`w-9 h-9 rounded-2xl flex items-center justify-center border-4 transition-all duration-300 ${formData.checkedItems[it.id] ? 'bg-red-500 border-red-500 shadow-lg scale-110' : 'bg-white border-gray-200'}`}>{formData.checkedItems[it.id] ? <X size={20} className="text-white font-black" /> : <div className="w-1.5 h-1.5 bg-gray-200 rounded-full"></div>}</div><span className={`text-[16px] flex-1 font-bold ${formData.checkedItems[it.id] ? 'text-red-700 font-black' : 'text-gray-600'}`}>{it.text}</span></div>))}</div></div>);
             })}
-            <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/95 backdrop-blur-xl z-[100] border-t-2 border-gray-100 safe-bottom flex items-center justify-center gap-6 shadow-2xl"><div className="max-w-2xl w-full flex items-center gap-6"><div className="flex-1"><p className="text-[10px] text-gray-400 font-black uppercase mb-1">查核項數</p><p className="text-3xl font-black text-red-600 leading-none">{checklistItems.filter(i => DEFECT_PAGES.includes(i.category) && formData.checkedItems[i.id]).length}<span className="text-[14px] ml-1.5 font-black uppercase text-gray-300">Items</span></p></div><button onClick={() => handleSubmit('check')} className="flex-[2] py-4 bg-[#1a1a1a] text-[#c5a065] rounded-[1.5rem] font-black shadow-2xl active:scale-95 transition-all"><Send size={20} className="inline mr-2" /> 提交</button></div></div>
+            <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/95 backdrop-blur-xl z-[100] border-t-2 border-gray-100 safe-bottom flex items-center justify-center gap-6 shadow-2xl"><div className="max-w-2xl w-full flex items-center gap-6"><div className="flex-1 pl-10"><p className="text-[10px] text-gray-400 font-black uppercase mb-1">查核項數</p><p className="text-3xl font-black text-red-600 leading-none">{checklistItems.filter(i => DEFECT_PAGES.includes(i.category) && formData.checkedItems[i.id]).length}<span className="text-[14px] ml-1.5 font-black uppercase text-gray-300">Items</span></p></div><button onClick={() => handleSubmit('check')} className="w-36 py-2 bg-[#1a1a1a] text-[#c5a065] rounded-xl font-black shadow-xl active:scale-95 transition-all text-sm"><Send size={16} className="inline mr-1" /> 提交</button></div></div>
           </div>
         ) : (
           <div className="space-y-6">
@@ -421,7 +528,7 @@ export default function App() {
               if (!items.length) return null;
               return (<div key={cat} className="space-y-3"><h3 className="text-[12px] font-black text-gray-500 px-5 flex items-center gap-3 font-black tracking-widest"><div className="w-1.5 h-4 bg-green-500 rounded-full"></div> {cat}</h3><div className="bg-white rounded-[2.8rem] shadow-md overflow-hidden divide-y divide-gray-50 border border-gray-100">{items.map(it => (<div key={it.id} onClick={() => handleCheck(it.id)} className={`p-6 flex items-center gap-5 cursor-pointer transition-all ${formData.checkedItems[it.id] ? 'bg-green-50/60' : 'active:bg-gray-100/50'}`}><div className={`w-9 h-9 rounded-2xl flex items-center justify-center border-4 transition-all duration-300 ${formData.checkedItems[it.id] ? 'bg-green-500 border-green-500 shadow-lg scale-110' : 'bg-white border-gray-200'}`}>{formData.checkedItems[it.id] ? <Check size={20} className="text-white font-black" /> : <div className="w-1.5 h-1.5 bg-gray-200 rounded-full"></div>}</div><div className="flex-1 text-gray-600"><p className={`text-[16px] font-bold ${formData.checkedItems[it.id] ? 'text-green-800 font-black' : ''}`}>{it.text}</p><p className="text-[11px] font-black uppercase mt-1 text-green-500">+ ${it.value} 津貼</p></div></div>))}</div></div>);
             })}
-            <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/95 backdrop-blur-xl z-[100] border-t-2 border-gray-100 safe-bottom flex items-center justify-center gap-6 shadow-2xl"><div className="max-w-2xl w-full flex items-center gap-6"><div className="flex-1"><p className="text-[10px] text-gray-400 font-black uppercase mb-1">累計津貼</p><p className="text-3xl font-black text-green-600 leading-none"><span className="text-[16px] font-black mr-1">$</span>{checklistItems.filter(i => DUTY_PAGES.includes(i.category) && formData.checkedItems[i.id]).reduce((s,i)=>s+(i.value||0),0)}</p></div><button onClick={() => handleSubmit('duty')} className="flex-[2] py-4 bg-[#1a1a1a] text-[#c5a065] rounded-[1.5rem] font-black shadow-2xl active:scale-95 transition-all"><Coins size={20} className="inline mr-2" /> 提交</button></div></div>
+            <div className="fixed bottom-0 left-0 right-0 p-8 bg-white/95 backdrop-blur-xl z-[100] border-t-2 border-gray-100 safe-bottom flex items-center justify-center gap-6 shadow-2xl"><div className="max-w-2xl w-full flex items-center gap-6"><div className="flex-1 pl-10"><p className="text-[10px] text-gray-400 font-black uppercase mb-1">累計津貼</p><p className="text-3xl font-black text-green-600 leading-none"><span className="text-[16px] font-black mr-1">$</span>{checklistItems.filter(i => DUTY_PAGES.includes(i.category) && formData.checkedItems[i.id]).reduce((s,i)=>s+(i.value||0),0)}</p></div><button onClick={() => handleSubmit('duty')} className="w-36 py-2 bg-[#1a1a1a] text-[#c5a065] rounded-xl font-black shadow-xl active:scale-95 transition-all text-sm"><Coins size={16} className="inline mr-1" /> 提交</button></div></div>
           </div>
         )}
 
@@ -452,7 +559,7 @@ export default function App() {
                   t += `✅ 津貼：${items.length} 項\n💰 金額：$${items.reduce((s,i)=>s+(i.value||0),0)}\n`;
                 }
                 if (formData.manualNote) t += `📝 備註：${formData.manualNote}`;
-                navigator.clipboard.writeText(t); alert("成功複製文字！");
+                document.execCommand('copy'); showToast("成功複製文字！");
               }} className="w-full bg-[#c5a065] text-white py-5 rounded-[1.5rem] font-black shadow-2xl active:scale-95 transition-all">複製 Line 回報</button>
               <button onClick={() => window.location.reload()} className="w-full text-gray-400 font-black text-xs pt-2 uppercase tracking-widest hover:text-gray-600">回首頁</button>
             </div>
