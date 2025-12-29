@@ -207,7 +207,6 @@ export default function App() {
 
     const unsubItems = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'items'), (snap) => {
       if (snap.empty) {
-        // 自動初始化標準項目
         const batch = writeBatch(db);
         DEFAULT_ITEMS.forEach(item => {
            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'items', item.id);
@@ -224,8 +223,6 @@ export default function App() {
 
     const unsubStaff = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'staff'), (snap) => {
       if (snap.empty) {
-        // 修正：如果為空，則寫入預設名單到資料庫，而不是只在前端顯示
-        // 這樣刪除功能才能真正運作（因為檔案真實存在）
         const batch = writeBatch(db);
         DEFAULT_STAFF.forEach(name => {
           const ref = doc(db, 'artifacts', appId, 'public', 'data', 'staff', name);
@@ -437,6 +434,42 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === 'history' && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center"><h3 className="font-black border-l-4 border-[#c5a065] pl-3 text-gray-800">歷史紀錄管理</h3><span className="text-xs text-gray-400 font-bold bg-gray-100 px-2 py-1 rounded-lg">{historyLogs.length} 筆資料</span></div>
+                <div className="space-y-3">
+                  {historyLogs.map(log => (
+                    <div key={log.id} className={`p-4 bg-white border rounded-2xl shadow-sm flex justify-between items-center gap-3 ${log.type === 'check' ? 'border-red-100' : 'border-green-100'}`}>
+                       <div className="flex items-center gap-3 overflow-hidden">
+                          <div className={`w-2 h-10 rounded-full ${log.type === 'check' ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                          <div className="min-w-0">
+                             <p className="font-black text-gray-800 text-sm flex items-center gap-2">
+                               {log.staffName} 
+                               <span className="text-[10px] text-gray-400 font-bold bg-gray-100 px-1.5 py-0.5 rounded">{log.dateStr}</span>
+                             </p>
+                             <p className="text-xs text-gray-500 truncate font-bold mt-0.5">
+                               {log.type === 'check' ? `⚠️ 缺失 ${log.defectCount} 項` : `💰 津貼 $${log.totalAmount}`}
+                               {log.manualNote && <span className="text-gray-300 mx-1">|</span>}
+                               {log.manualNote && <span className="text-gray-400">{log.manualNote}</span>}
+                             </p>
+                          </div>
+                       </div>
+                       <button 
+                         onClick={() => openConfirm("刪除紀錄", `確定要刪除 ${log.staffName} 於 ${log.dateStr} 的這筆 ${log.type === 'check' ? '查核' : '津貼'} 紀錄嗎？`, async () => {
+                           await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reports', log.id));
+                           showToast("紀錄已刪除");
+                         })}
+                         className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all flex-shrink-0"
+                       >
+                         <Trash2 size={18} />
+                       </button>
+                    </div>
+                  ))}
+                  {historyLogs.length === 0 && <div className="text-center py-12 text-gray-300 font-black">本月無相關紀錄</div>}
+                </div>
               </div>
             )}
 
