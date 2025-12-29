@@ -549,9 +549,9 @@ export default function App() {
                     <div key={admin.username} className="p-4 bg-white border border-gray-100 rounded-2xl flex justify-between items-center shadow-sm">
                       <div>
                         <p className="font-black text-gray-700 text-sm">{admin.username}</p>
-                        <p className="text-xs text-gray-400 font-bold">密碼: {admin.password}</p>
+                        <p className="text-xs text-gray-400 font-bold">密碼: ••••••••</p>
                       </div>
-                      {admin.username !== INITIAL_ADMIN.username && (
+                      {adminList.length > 1 && (
                         <button 
                           onClick={() => openConfirm("刪除管理員", `確定要移除 ${admin.username} 的管理權限嗎？`, async () => {
                             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'admins', admin.username));
