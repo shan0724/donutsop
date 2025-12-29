@@ -33,7 +33,8 @@ import {
   Lock,
   Unlock,
   AlertTriangle,
-  AlertCircle
+  AlertCircle,
+  Key
 } from 'lucide-react';
 
 // ------------------------------------------------------------------
@@ -132,6 +133,10 @@ export default function App() {
   const [statsMonth, setStatsMonth] = useState(new Date().toISOString().slice(0, 7));
   const [newStaffName, setNewStaffName] = useState('');
   const [filterStaff, setFilterStaff] = useState('all');
+  
+  // 新增管理員相關 State
+  const [newAdminUser, setNewAdminUser] = useState('');
+  const [newAdminPass, setNewAdminPass] = useState('');
 
   const [isStaffEditMode, setIsStaffEditMode] = useState(false);
   const [isItemEditMode, setIsItemEditMode] = useState(false);
@@ -521,6 +526,45 @@ export default function App() {
                     <Trash2 size={18}/>
                   </button>
                 )}</div>))}</div>
+              </div>
+            )}
+
+            {activeTab === 'admins' && (
+              <div className="space-y-4">
+                <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-300 shadow-sm space-y-3">
+                   <p className="text-sm font-black text-gray-700 flex items-center gap-2"><Key size={16} /> 新增管理員</p>
+                   <div className="flex flex-col gap-2">
+                     <input type="text" value={newAdminUser} onChange={e=>setNewAdminUser(e.target.value)} className="w-full p-3 bg-white shadow-sm rounded-xl font-black outline-none text-sm" placeholder="帳號" />
+                     <input type="text" value={newAdminPass} onChange={e=>setNewAdminPass(e.target.value)} className="w-full p-3 bg-white shadow-sm rounded-xl font-black outline-none text-sm" placeholder="密碼" />
+                     <button onClick={async () => { 
+                        if(!newAdminUser || !newAdminPass) return; 
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'admins', newAdminUser), { username: newAdminUser, password: newAdminPass }); 
+                        setNewAdminUser(''); setNewAdminPass(''); 
+                        showToast("管理員已新增"); 
+                     }} className="w-full py-3 bg-[#c5a065] text-white rounded-xl font-black active:scale-95 shadow-lg">新增權限</button>
+                   </div>
+                </div>
+                <div className="space-y-2">
+                  {adminList.map(admin => (
+                    <div key={admin.username} className="p-4 bg-white border border-gray-100 rounded-2xl flex justify-between items-center shadow-sm">
+                      <div>
+                        <p className="font-black text-gray-700 text-sm">{admin.username}</p>
+                        <p className="text-xs text-gray-400 font-bold">密碼: {admin.password}</p>
+                      </div>
+                      {admin.username !== INITIAL_ADMIN.username && (
+                        <button 
+                          onClick={() => openConfirm("刪除管理員", `確定要移除 ${admin.username} 的管理權限嗎？`, async () => {
+                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'admins', admin.username));
+                            showToast("管理員已刪除");
+                          })} 
+                          className="text-red-400 p-2 active:bg-red-50 rounded-full transition-colors"
+                        >
+                          <Trash2 size={18}/>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
